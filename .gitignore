@@ -1,0 +1,17 @@
+# Python virtual environments
+IDS_CICIoT2023/ids_env/
+IDS_CICIoT2023/venv/
+IDS_CICIoT2023/.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Secrets
+.env
+**/.env
+
+# Node dependencies and build output
+node_modules/
+dist/
+build/
