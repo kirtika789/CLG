@@ -6,10 +6,11 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization
 from tensorflow.keras.optimizers import Adam, RMSprop
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
+from sklearn.utils.class_weight import compute_class_weight
 
 from utils import set_seeds, Timer
-from preprocessing import create_sequences, sort_by_label
+from preprocessing import create_sequences
 from evaluation import (
     calculate_comprehensive_metrics,
     plot_and_save_confusion_matrix,
@@ -18,28 +19,47 @@ from evaluation import (
     save_complete_predictions
 )
 
-def create_lstm_model(seq_length, num_features, num_classes, lstm_units=[64, 32], dropout_rate=0.2, learning_rate=0.001, optimizer_name='adam'):
+def create_lstm_model(
+    seq_length,
+    num_features,
+    num_classes,
+    lstm_units=[128, 64],
+    dense_units=128,
+    dropout_rate=0.3,
+    learning_rate=0.0005,
+    optimizer_name='adam'
+):
     """
-    Constructs a Long Short-Term Memory (LSTM) sequence model.
+    Constructs an improved Long Short-Term Memory (LSTM) network architecture.
+    
+    Architecture Design:
+    - Input tensor: (batch_size, seq_length, num_features)
+    - 1-layer or 2-layer stacked LSTM with recurrent regularization.
+    - Dropout for inter-layer and dense regularization.
+    - Dense projection head with ReLU activation.
+    - Batch Normalization to stabilize latent representation activations.
+    - 34-unit Softmax output layer with sparse categorical cross-entropy.
     """
     model = Sequential()
     model.add(Input(shape=(seq_length, num_features)))
+
     if len(lstm_units) == 1:
-        model.add(LSTM(lstm_units[0], return_sequences=False))
+        model.add(LSTM(lstm_units[0], return_sequences=False, dropout=0.1))
         model.add(Dropout(dropout_rate))
     else:
-        model.add(LSTM(lstm_units[0], return_sequences=True))
-        model.add(Dropout(dropout_rate))
-        for units in lstm_units[1:-1]:
-            model.add(LSTM(units, return_sequences=True))
+        for units in lstm_units[:-1]:
+            model.add(LSTM(units, return_sequences=True, dropout=0.1))
             model.add(Dropout(dropout_rate))
-        model.add(LSTM(lstm_units[-1], return_sequences=False))
+        model.add(LSTM(lstm_units[-1], return_sequences=False, dropout=0.1))
         model.add(Dropout(dropout_rate))
 
-    model.add(Dense(64, activation='relu'))
+    # Dense representation head
+    model.add(Dense(dense_units, activation='relu'))
     model.add(BatchNormalization())
+    model.add(Dropout(dropout_rate * 0.75))
     model.add(Dense(num_classes, activation='softmax'))
 
+    # Optimizer
     if optimizer_name.lower() == 'rmsprop':
         opt = RMSprop(learning_rate=learning_rate)
     else:
@@ -52,16 +72,35 @@ def create_lstm_model(seq_length, num_features, num_classes, lstm_units=[64, 32]
     )
     return model
 
-def run_lstm_experiment(dataset_dict, output_dir, seq_length=10):
+def compute_stabilized_class_weights(y_train, max_weight=35.0):
     """
-    Runs hyperparameter tuning, model training, evaluation, and saving for LSTM.
-    Sequence Construction: CICIoT2023 tabular flow records are windowed (seq_length=10) 
-    independently within each data split to maintain temporal sequence relationships 
-    without train/val/test data leakage.
+    Computes class weights from training labels with upper-bound clamping.
+    Extreme class imbalances (e.g. 10,000x) can destabilize recurrent gates.
+    Clamping to a reasonable upper bound protects against gradient explosions
+    while still heavily penalizing rare attack misclassifications.
+    """
+    classes = np.unique(y_train)
+    raw_weights = compute_class_weight(class_weight='balanced', classes=classes, y=y_train)
+    clamped_weights = {
+        int(c): float(np.clip(w, 0.5, max_weight))
+        for c, w in zip(classes, raw_weights)
+    }
+    return clamped_weights
+
+def run_lstm_experiment(dataset_dict, output_dir, seq_length=5):
+    """
+    Runs hyperparameter tuning, model training, evaluation, and saving for improved LSTM.
+    
+    Methodological Integrity:
+    - Sequence Construction: Sequences are constructed in chronological / natural arrival order 
+      within each split independently. Records are NEVER artificially grouped or sorted by label.
+    - Zero Data Leakage: Scalers, label encoders, sequence windows, and class statistics are 
+      derived strictly from training data without crossing split boundaries.
     """
     set_seeds(42)
-    print("\n==================== MODEL 6: LONG SHORT-TERM MEMORY (LSTM) ====================")
-    print(f"[LSTM SEQUENCE CONSTRUCTION] Constructing sequence windows (seq_length={seq_length}) within train, val, and test splits...")
+    print("\n==================== MODEL 6: IMPROVED LONG SHORT-TERM MEMORY (LSTM) ====================")
+    print(f"[LSTM SEQUENCE CONSTRUCTION] Constructing natural sequence windows (seq_length={seq_length})...")
+    print("  [NOTE] Natural sequence ordering preserved. No artificial label sorting applied.")
 
     X_train_raw, y_train_raw = dataset_dict['X_train'], dataset_dict['y_train']
     X_val_raw, y_val_raw = dataset_dict['X_val'], dataset_dict['y_val']
@@ -69,47 +108,46 @@ def run_lstm_experiment(dataset_dict, output_dir, seq_length=10):
     class_names = dataset_dict['class_names']
     num_features = dataset_dict['num_features']
     num_classes = dataset_dict['num_classes']
-    class_weights = dataset_dict['class_weight_dict']
 
-    # Group each split by class before windowing. This dataset has no
-    # genuine per-row timestamp, so a plain sliding window over
-    # label-stratified-sampled data would otherwise blend unrelated
-    # classes into a single sequence.
-    X_train_sorted, y_train_sorted = sort_by_label(X_train_raw, y_train_raw)
-    X_val_sorted, y_val_sorted = sort_by_label(X_val_raw, y_val_raw)
-    X_test_sorted, y_test_sorted = sort_by_label(X_test_raw, y_test_raw)
+    # Construct sequences in natural split order without sort_by_label
+    X_train_seq, y_train_seq = create_sequences(X_train_raw, y_train_raw, seq_length=seq_length)
+    X_val_seq, y_val_seq = create_sequences(X_val_raw, y_val_raw, seq_length=seq_length)
+    X_test_seq, y_test_seq = create_sequences(X_test_raw, y_test_raw, seq_length=seq_length)
 
-    X_train_seq, y_train_seq = create_sequences(X_train_sorted, y_train_sorted, seq_length=seq_length)
-    X_val_seq, y_val_seq = create_sequences(X_val_sorted, y_val_sorted, seq_length=seq_length)
-    X_test_seq, y_test_seq = create_sequences(X_test_sorted, y_test_sorted, seq_length=seq_length)
+    print(f"  Sequence Tensors: Train={X_train_seq.shape}, Val={X_val_seq.shape}, Test={X_test_seq.shape}")
 
-    # Search Space for LSTM
+    # Compute stabilized class weights exclusively from training sequences
+    class_weights = compute_stabilized_class_weights(y_train_seq, max_weight=35.0)
+
+    # Search Space for Improved LSTM (Tuning strictly on validation split)
     hyperparam_configs = [
-        {'units': [64, 32], 'lr': 0.001, 'batch_size': 128, 'opt': 'adam', 'dropout': 0.2},
-        {'units': [128, 64], 'lr': 0.001, 'batch_size': 128, 'opt': 'adam', 'dropout': 0.3},
-        {'units': [64], 'lr': 0.0005, 'batch_size': 64, 'opt': 'rmsprop', 'dropout': 0.2},
-        {'units': [128, 64, 32], 'lr': 0.0001, 'batch_size': 128, 'opt': 'adam', 'dropout': 0.2},
+        {'name': '1-Layer LSTM (128 units)', 'units': [128], 'dense': 128, 'lr': 0.001, 'batch_size': 64, 'opt': 'adam', 'dropout': 0.25},
+        {'name': '1-Layer LSTM (128 units, low LR)', 'units': [128], 'dense': 128, 'lr': 0.0005, 'batch_size': 64, 'opt': 'adam', 'dropout': 0.3},
+        {'name': '2-Layer Hierarchical LSTM (128->64)', 'units': [128, 64], 'dense': 128, 'lr': 0.0005, 'batch_size': 64, 'opt': 'adam', 'dropout': 0.25},
+        {'name': '1-Layer LSTM (64 units, RMSprop)', 'units': [64], 'dense': 64, 'lr': 0.0005, 'batch_size': 64, 'opt': 'rmsprop', 'dropout': 0.2},
     ]
 
     tuning_results = []
     best_val_f1 = -1.0
     best_config = None
 
-    print(f"[LSTM TUNING] Testing {len(hyperparam_configs)} hyperparameter configurations...")
+    print(f"\n[LSTM TUNING] Testing {len(hyperparam_configs)} hyperparameter configurations on validation split...")
 
     for i, cfg in enumerate(hyperparam_configs):
-        print(f"  Config {i+1}/{len(hyperparam_configs)}: Units={cfg['units']}, Opt={cfg['opt']}, LR={cfg['lr']}, Batch={cfg['batch_size']}")
+        print(f"\n  Config {i+1}/{len(hyperparam_configs)}: {cfg['name']} | Units={cfg['units']}, Opt={cfg['opt']}, LR={cfg['lr']}, Batch={cfg['batch_size']}")
         model = create_lstm_model(
             seq_length=seq_length,
             num_features=num_features,
             num_classes=num_classes,
             lstm_units=cfg['units'],
+            dense_units=cfg['dense'],
             dropout_rate=cfg['dropout'],
             learning_rate=cfg['lr'],
             optimizer_name=cfg['opt']
         )
 
         early_stop = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2, min_lr=1e-5, verbose=0)
 
         hist = model.fit(
             X_train_seq, y_train_seq,
@@ -117,7 +155,7 @@ def run_lstm_experiment(dataset_dict, output_dir, seq_length=10):
             epochs=8,
             batch_size=cfg['batch_size'],
             class_weight=class_weights,
-            callbacks=[early_stop],
+            callbacks=[early_stop, reduce_lr],
             verbose=0
         )
 
@@ -125,14 +163,17 @@ def run_lstm_experiment(dataset_dict, output_dir, seq_length=10):
         val_preds = np.argmax(val_probs, axis=1)
 
         val_metrics, _ = calculate_comprehensive_metrics(y_val_seq, val_preds, val_probs, class_names)
+        print(f"    Val Accuracy: {val_metrics['Accuracy']:.4f} | Val F1: {val_metrics['F1_Score']:.4f} | Epochs: {len(hist.history['loss'])}")
 
         tuning_results.append({
             'Model': 'LSTM',
+            'Configuration': cfg['name'],
             'Optimizer': cfg['opt'],
             'Learning Rate': cfg['lr'],
             'Batch Size': cfg['batch_size'],
             'Layers': len(cfg['units']),
             'Neurons': str(cfg['units']),
+            'Dense Units': cfg['dense'],
             'Dropout': cfg['dropout'],
             'Epochs': len(hist.history['loss']),
             'PCA Components': 'N/A',
@@ -150,35 +191,45 @@ def run_lstm_experiment(dataset_dict, output_dir, seq_length=10):
     df_tuning = pd.DataFrame(tuning_results)
     tuning_csv_path = os.path.join(output_dir, 'hyperparameter_tuning', 'lstm_tuning_results.csv')
     df_tuning.to_csv(tuning_csv_path, index=False)
-    print(f"[LSTM TUNING] Saved all tuning results to {tuning_csv_path}")
+    print(f"\n[LSTM TUNING] Saved all tuning results to {tuning_csv_path}")
+    print(f"[LSTM TUNING] Selected Best Config: {best_config['name']} (Validation F1: {best_val_f1:.4f})")
 
-    # Retrain best model
-    print("\n[LSTM FINAL TRAINING] Retraining best LSTM configuration...")
+    # Retrain best model with full epochs, dynamic LR reduction, and ModelCheckpoint
+    print(f"\n[LSTM FINAL TRAINING] Retraining winning architecture ({best_config['name']})...")
     final_model = create_lstm_model(
         seq_length=seq_length,
         num_features=num_features,
         num_classes=num_classes,
         lstm_units=best_config['units'],
+        dense_units=best_config['dense'],
         dropout_rate=best_config['dropout'],
         learning_rate=best_config['lr'],
         optimizer_name=best_config['opt']
     )
+
+    models_save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_models")
+    os.makedirs(models_save_dir, exist_ok=True)
+    checkpoint_path = os.path.join(models_save_dir, "best_lstm_model.keras")
+
     early_stop = EarlyStopping(monitor='val_loss', patience=4, restore_best_weights=True)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2, min_lr=1e-5, verbose=1)
+    checkpoint = ModelCheckpoint(filepath=checkpoint_path, monitor='val_loss', save_best_only=True, verbose=0)
 
     with Timer() as t_train:
         final_hist = final_model.fit(
             X_train_seq, y_train_seq,
             validation_data=(X_val_seq, y_val_seq),
-            epochs=12,
+            epochs=15,
             batch_size=best_config['batch_size'],
             class_weight=class_weights,
-            callbacks=[early_stop],
+            callbacks=[early_stop, reduce_lr, checkpoint],
             verbose=1
         )
     training_time = t_train.duration
+    print(f"[LSTM TRAINING] Training completed in {training_time:.2f}s. Saved checkpoint to {checkpoint_path}")
 
-    # Evaluation on Test set
-    print("[LSTM FINAL EVALUATION] Evaluating on untouched test set...")
+    # Final Evaluation on Untouched Test Set
+    print("\n[LSTM FINAL EVALUATION] Evaluating on untouched test set...")
     with Timer() as t_infer:
         test_probs = final_model.predict(X_test_seq, batch_size=256, verbose=0)
     inference_time = t_infer.duration
@@ -189,11 +240,16 @@ def run_lstm_experiment(dataset_dict, output_dir, seq_length=10):
     test_metrics['Inference_Time'] = float(inference_time)
     test_metrics['Model'] = 'LSTM'
 
-    print(f"[LSTM RESULTS] Test Accuracy: {test_metrics['Accuracy']:.4f} | Precision: {test_metrics['Precision']:.4f} | Recall: {test_metrics['Recall']:.4f} | F1: {test_metrics['F1_Score']:.4f}")
+    roc_str = f"{test_metrics['ROC_AUC']:.4f}" if pd.notna(test_metrics['ROC_AUC']) else "N/A"
+    pr_str = f"{test_metrics['PR_AUC']:.4f}" if pd.notna(test_metrics['PR_AUC']) else "N/A"
+    print(f"[LSTM RESULTS] Accuracy: {test_metrics['Accuracy']:.4f} | Precision: {test_metrics['Precision']:.4f} | Recall: {test_metrics['Recall']:.4f} | F1: {test_metrics['F1_Score']:.4f}")
+    print(f"               ROC-AUC: {roc_str} | PR-AUC: {pr_str}")
 
-    # Save metrics
+    # Save metrics CSV
     df_metrics = pd.DataFrame([test_metrics])
-    df_metrics.to_csv(os.path.join(output_dir, 'metrics', 'lstm_metrics.csv'), index=False)
+    metrics_path = os.path.join(output_dir, 'metrics', 'lstm_metrics.csv')
+    df_metrics.to_csv(metrics_path, index=False)
+    print(f"[LSTM] Saved updated metrics to {metrics_path}")
 
     # Save confusion matrix
     cm_png_path = os.path.join(output_dir, 'confusion_matrices', 'lstm_confusion_matrix.png')
@@ -205,7 +261,7 @@ def run_lstm_experiment(dataset_dict, output_dir, seq_length=10):
     loss_curve_path = os.path.join(output_dir, 'training_curves', 'lstm_loss.png')
     plot_and_save_training_curves(final_hist, acc_curve_path, loss_curve_path, model_name="LSTM")
 
-    # Save Predictions with Complete Probability Matrix
+    # Save complete prediction probabilities matrix
     preds_csv_path = os.path.join(output_dir, 'predictions', 'lstm_predictions.csv')
     save_complete_predictions(y_test_seq, test_preds, test_probs, class_names, preds_csv_path, model_name="LSTM")
 

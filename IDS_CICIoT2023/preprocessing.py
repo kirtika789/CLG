@@ -141,17 +141,18 @@ def load_and_preprocess_dataset(sample_subset=True, sample_size=200000, random_s
     y_train = label_encoder.fit_transform(y_train_raw)
     
     known_classes = set(label_encoder.classes_)
-    def transform_labels(y_raw):
-        y_trans = []
-        for l in y_raw:
-            if l in known_classes:
-                y_trans.append(label_encoder.transform([l])[0])
-            else:
-                y_trans.append(0)
-        return np.array(y_trans)
+    class_to_idx = {c: idx for idx, c in enumerate(label_encoder.classes_)}
+    def transform_labels(y_raw, split_name="validation/test"):
+        unknown_labels = set(y_raw) - known_classes
+        if unknown_labels:
+            raise ValueError(
+                f"[PREPROCESSING ERROR] Unseen label(s) encountered in {split_name} split: {unknown_labels}. "
+                f"Unknown labels must never be silently mapped to class 0."
+            )
+        return np.array([class_to_idx[l] for l in y_raw], dtype=np.int32)
 
-    y_val = transform_labels(y_val_raw)
-    y_test = transform_labels(y_test_raw)
+    y_val = transform_labels(y_val_raw, "validation")
+    y_test = transform_labels(y_test_raw, "test")
 
     # Fit StandardScaler ONLY on training features
     scaler = StandardScaler()
