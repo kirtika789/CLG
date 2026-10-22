@@ -9,7 +9,9 @@ from sklearn.ensemble import RandomForestClassifier
 from utils import set_seeds, Timer
 from evaluation import (
     calculate_comprehensive_metrics,
-    plot_and_save_confusion_matrix
+    plot_and_save_confusion_matrix,
+    plot_and_save_roc_curves,
+    save_complete_predictions
 )
 
 def run_random_forest_experiment(dataset_dict, output_dir):
@@ -151,16 +153,12 @@ def run_random_forest_experiment(dataset_dict, output_dir):
 
     print(f"[FEATURE ANALYSIS] Saved Random Forest feature importances to {feat_csv_path} and {top_feat_png_path}")
 
-    # Save predictions
-    y_test_labels = [class_names[i] for i in y_test]
-    pred_labels = [class_names[i] for i in test_preds]
-    max_probs = np.max(test_probs, axis=1)
+    # Save Predictions with Complete Probability Matrix
+    preds_csv_path = os.path.join(output_dir, 'predictions', 'random_forest_predictions.csv')
+    save_complete_predictions(y_test, test_preds, test_probs, class_names, preds_csv_path, model_name="Random Forest")
 
-    df_preds = pd.DataFrame({
-        'Actual_Label': y_test_labels,
-        'Predicted_Label': pred_labels,
-        'Prediction_Probability': max_probs
-    })
-    df_preds.to_csv(os.path.join(output_dir, 'predictions', 'random_forest_predictions.csv'), index=False)
+    # Plot & Save One-vs-Rest ROC Curves
+    roc_png_path = os.path.join(output_dir, 'model_comparison', 'random_forest_roc_curve.png')
+    plot_and_save_roc_curves(y_test, test_probs, class_names, roc_png_path, model_name="Random Forest")
 
     return test_metrics, best_config

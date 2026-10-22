@@ -5,25 +5,56 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.decomposition import PCA
 from sklearn.utils.class_weight import compute_class_weight
 
-DATASET_RAW_DIR = r"C:\Users\kalas\.cache\kagglehub\datasets\himadri07\ciciot2023\versions\1\CICIOT23"
+DATASET_RAW_DIR = os.environ.get(
+    "CICIOT2023_DATA_DIR",
+    os.path.expanduser(r"~/.cache/kagglehub/datasets/himadri07/ciciot2023/versions/1/CICIOT23")
+)
 
-def find_dataset_files(data_dir=DATASET_RAW_DIR):
+def find_dataset_files(data_dir=None):
     """
-    Locates train.csv, validation.csv, and test.csv in the raw data directory.
+    Locates train.csv, validation.csv, and test.csv across multiple candidate directories:
+    1. Explicit data_dir parameter
+    2. CICIOT2023_DATA_DIR environment variable
+    3. Project local data/raw or data/ directory
+    4. Current user's kagglehub cache (~/.cache/kagglehub/datasets/himadri07/ciciot2023)
+    5. Fallback path (C:\\Users\\kalas\\.cache\\kagglehub\\...)
     """
-    files = {}
-    for root, dirs, filenames in os.walk(data_dir):
-        for f in filenames:
-            if f.lower() == 'train.csv':
-                files['train'] = os.path.join(root, f)
-            elif f.lower() == 'validation.csv':
-                files['val'] = os.path.join(root, f)
-            elif f.lower() == 'test.csv':
-                files['test'] = os.path.join(root, f)
-    
-    if not files.get('train') or not files.get('val') or not files.get('test'):
-        raise FileNotFoundError(f"Could not locate train.csv, validation.csv, and test.csv in {data_dir}")
-    return files
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = []
+    if data_dir:
+        candidates.append(data_dir)
+    if 'CICIOT2023_DATA_DIR' in os.environ:
+        candidates.append(os.environ['CICIOT2023_DATA_DIR'])
+    candidates.append(os.path.join(current_dir, "data", "raw"))
+    candidates.append(os.path.join(current_dir, "data"))
+    candidates.append(os.path.expanduser(r"~/.cache/kagglehub/datasets/himadri07/ciciot2023/versions/1/CICIOT23"))
+    candidates.append(os.path.expanduser(r"~/.cache/kagglehub/datasets/himadri07/ciciot2023"))
+    candidates.append(r"C:\Users\kalas\.cache\kagglehub\datasets\himadri07\ciciot2023\versions\1\CICIOT23")
+
+    searched_paths = []
+    for cand in candidates:
+        if not cand or not os.path.exists(cand):
+            searched_paths.append(str(cand) + " (does not exist)")
+            continue
+        searched_paths.append(str(cand) + " (checked)")
+        files = {}
+        for root, dirs, filenames in os.walk(cand):
+            for f in filenames:
+                f_lower = f.lower()
+                if f_lower == 'train.csv':
+                    files['train'] = os.path.join(root, f)
+                elif f_lower == 'validation.csv':
+                    files['val'] = os.path.join(root, f)
+                elif f_lower == 'test.csv':
+                    files['test'] = os.path.join(root, f)
+        if files.get('train') and files.get('val') and files.get('test'):
+            return files
+
+    searched_summary = "\n  - ".join(searched_paths)
+    raise FileNotFoundError(
+        f"Could not locate train.csv, validation.csv, and test.csv in any candidate location:\n  - {searched_summary}\n"
+        f"Please place train.csv, validation.csv, and test.csv into: {os.path.join(current_dir, 'data', 'raw')}"
+    )
 
 def clean_dataframe(df):
     """

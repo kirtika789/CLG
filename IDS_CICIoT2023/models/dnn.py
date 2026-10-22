@@ -14,7 +14,9 @@ from utils import set_seeds, Timer
 from evaluation import (
     calculate_comprehensive_metrics,
     plot_and_save_confusion_matrix,
-    plot_and_save_training_curves
+    plot_and_save_training_curves,
+    plot_and_save_roc_curves,
+    save_complete_predictions
 )
 
 def create_dnn_model(input_dim, num_classes, layers_config=[256, 128], dropout_rate=0.2, learning_rate=0.001, optimizer_name='adam'):
@@ -211,18 +213,12 @@ def run_dnn_experiment(dataset_dict, output_dir):
     loss_curve_path = os.path.join(output_dir, 'training_curves', 'dnn_loss.png')
     plot_and_save_training_curves(final_hist, acc_curve_path, loss_curve_path, model_name="DNN")
 
-    # Save Predictions CSV
-    y_test_labels = [class_names[i] for i in y_test]
-    pred_labels = [class_names[i] for i in test_preds]
-    max_probs = np.max(test_probs, axis=1)
-
-    df_preds = pd.DataFrame({
-        'Actual_Label': y_test_labels,
-        'Predicted_Label': pred_labels,
-        'Prediction_Probability': max_probs
-    })
+    # Save Predictions with Complete Probability Matrix
     preds_csv_path = os.path.join(output_dir, 'predictions', 'dnn_predictions.csv')
-    df_preds.to_csv(preds_csv_path, index=False)
-    print(f"[DNN PREDICTIONS] Saved test predictions to {preds_csv_path}")
+    save_complete_predictions(y_test, test_preds, test_probs, class_names, preds_csv_path, model_name="DNN")
+
+    # Plot & Save One-vs-Rest ROC Curves
+    roc_png_path = os.path.join(output_dir, 'model_comparison', 'dnn_roc_curve.png')
+    plot_and_save_roc_curves(y_test, test_probs, class_names, roc_png_path, model_name="DNN")
 
     return test_metrics, best_config

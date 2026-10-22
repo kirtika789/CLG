@@ -14,7 +14,9 @@ from preprocessing import apply_pca_preprocessing
 from evaluation import (
     calculate_comprehensive_metrics,
     plot_and_save_confusion_matrix,
-    plot_and_save_training_curves
+    plot_and_save_training_curves,
+    plot_and_save_roc_curves,
+    save_complete_predictions
 )
 
 def create_lnn_model(input_dim, num_classes, units=128, dropout_rate=0.1, learning_rate=0.001, optimizer_name='adam'):
@@ -216,16 +218,12 @@ def run_pca_lnn_experiment(dataset_dict, output_dir):
     loss_curve_path = os.path.join(output_dir, 'training_curves', 'pca_lnn_loss.png')
     plot_and_save_training_curves(final_hist, acc_curve_path, loss_curve_path, model_name="PCA + LNN")
 
-    # Save predictions
-    y_test_labels = [class_names[i] for i in y_test]
-    pred_labels = [class_names[i] for i in test_preds]
-    max_probs = np.max(test_probs, axis=1)
+    # Save Predictions with Complete Probability Matrix
+    preds_csv_path = os.path.join(output_dir, 'predictions', 'pca_lnn_predictions.csv')
+    save_complete_predictions(y_test, test_preds, test_probs, class_names, preds_csv_path, model_name="PCA + LNN")
 
-    df_preds = pd.DataFrame({
-        'Actual_Label': y_test_labels,
-        'Predicted_Label': pred_labels,
-        'Prediction_Probability': max_probs
-    })
-    df_preds.to_csv(os.path.join(output_dir, 'predictions', 'pca_lnn_predictions.csv'), index=False)
+    # Plot & Save One-vs-Rest ROC Curves
+    roc_png_path = os.path.join(output_dir, 'model_comparison', 'pca_lnn_roc_curve.png')
+    plot_and_save_roc_curves(y_test, test_probs, class_names, roc_png_path, model_name="PCA + LNN")
 
     return test_metrics, best_config

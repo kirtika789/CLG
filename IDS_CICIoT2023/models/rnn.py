@@ -13,7 +13,9 @@ from preprocessing import create_sequences
 from evaluation import (
     calculate_comprehensive_metrics,
     plot_and_save_confusion_matrix,
-    plot_and_save_training_curves
+    plot_and_save_training_curves,
+    plot_and_save_roc_curves,
+    save_complete_predictions
 )
 
 def create_rnn_model(seq_length, num_features, num_classes, rnn_units=[64, 32], dropout_rate=0.2, learning_rate=0.001, optimizer_name='adam'):
@@ -196,16 +198,12 @@ def run_rnn_experiment(dataset_dict, output_dir, seq_length=10):
     loss_curve_path = os.path.join(output_dir, 'training_curves', 'rnn_loss.png')
     plot_and_save_training_curves(final_hist, acc_curve_path, loss_curve_path, model_name="RNN")
 
-    # Save predictions
-    y_test_labels = [class_names[i] for i in y_test_seq]
-    pred_labels = [class_names[i] for i in test_preds]
-    max_probs = np.max(test_probs, axis=1)
+    # Save Predictions with Complete Probability Matrix
+    preds_csv_path = os.path.join(output_dir, 'predictions', 'rnn_predictions.csv')
+    save_complete_predictions(y_test_seq, test_preds, test_probs, class_names, preds_csv_path, model_name="RNN")
 
-    df_preds = pd.DataFrame({
-        'Actual_Label': y_test_labels,
-        'Predicted_Label': pred_labels,
-        'Prediction_Probability': max_probs
-    })
-    df_preds.to_csv(os.path.join(output_dir, 'predictions', 'rnn_predictions.csv'), index=False)
+    # Plot & Save One-vs-Rest ROC Curves
+    roc_png_path = os.path.join(output_dir, 'model_comparison', 'rnn_roc_curve.png')
+    plot_and_save_roc_curves(y_test_seq, test_probs, class_names, roc_png_path, model_name="RNN")
 
     return test_metrics, best_config

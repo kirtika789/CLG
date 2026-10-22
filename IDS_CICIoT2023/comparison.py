@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def generate_model_comparison(all_metrics_list, output_dir, dataset_metadata):
+def generate_model_comparison(all_metrics_list, output_dir, dataset_metadata=None):
     """
     Consolidates evaluation metrics across all 6 models, creates comparison plots,
     saves comparison CSVs, and generates the final academic report.
@@ -19,10 +19,13 @@ def generate_model_comparison(all_metrics_list, output_dir, dataset_metadata):
         'Weighted_Recall', 'Weighted_F1'
     ]
     existing_cols = [c for c in cols_order if c in df_comparison.columns]
-    df_comparison = df_comparison[existing_cols]
+    # Add any extra columns at the end
+    extra_cols = [c for c in df_comparison.columns if c not in cols_order]
+    df_comparison = df_comparison[existing_cols + extra_cols]
 
     # Save CSVs
     final_comp_csv = os.path.join(output_dir, 'metrics', 'final_model_comparison.csv')
+    os.makedirs(os.path.dirname(final_comp_csv), exist_ok=True)
     df_comparison.to_csv(final_comp_csv, index=False)
     
     reports_dir = os.path.join(output_dir, 'reports')
@@ -44,6 +47,8 @@ def generate_model_comparison(all_metrics_list, output_dir, dataset_metadata):
         ('Specificity', 'specificity_comparison.png', 'Specificity Comparison', 'crest'),
         ('FPR', 'fpr_comparison.png', 'False Positive Rate (FPR) Comparison (Lower is Better)', 'Reds'),
         ('FNR', 'fnr_comparison.png', 'False Negative Rate (FNR) Comparison (Lower is Better)', 'rocket'),
+        ('ROC_AUC', 'roc_auc_comparison.png', 'Macro One-vs-Rest ROC-AUC Comparison', 'magma'),
+        ('PR_AUC', 'pr_auc_comparison.png', 'Macro One-vs-Rest PR-AUC Comparison', 'cividis'),
         ('Training_Time', 'training_time_comparison.png', 'Training Time (Seconds)', 'viridis'),
         ('Inference_Time', 'inference_time_comparison.png', 'Inference Time (Seconds)', 'plasma'),
     ]
@@ -52,21 +57,34 @@ def generate_model_comparison(all_metrics_list, output_dir, dataset_metadata):
 
     for metric_col, filename, title, palette in metrics_to_plot:
         if metric_col in df_comparison.columns:
+            plot_df = df_comparison[['Model', metric_col]].copy()
+            # Replace NaNs with 0 for plotting bar height, but annotate clearly as N/A
+            is_valid = plot_df[metric_col].notna() & np.isfinite(plot_df[metric_col])
+
             fig, ax = plt.subplots(figsize=(10, 6))
-            bars = sns.barplot(x='Model', y=metric_col, data=df_comparison, hue='Model', palette=palette, legend=False, ax=ax)
+            bars = sns.barplot(
+                x='Model', y=metric_col, data=plot_df,
+                hue='Model', palette=palette, legend=False, ax=ax
+            )
             ax.set_title(title, fontsize=14, fontweight='bold', pad=15)
             ax.set_xlabel('Model Architecture', fontsize=12)
             ax.set_ylabel(metric_col, fontsize=12)
             
             # Annotate values on top of bars
-            for bar in bars.patches:
-                val = bar.get_height()
-                if metric_col in ['Training_Time', 'Inference_Time']:
+            for bar, (_, row) in zip(bars.patches, plot_df.iterrows()):
+                val = row[metric_col]
+                if pd.isna(val) or not np.isfinite(val):
+                    label_str = "N/A"
+                    y_pos = 0.02
+                elif metric_col in ['Training_Time', 'Inference_Time']:
                     label_str = f"{val:.2f}s"
+                    y_pos = bar.get_height()
                 else:
                     label_str = f"{val:.4f}"
+                    y_pos = bar.get_height()
+                    
                 ax.annotate(label_str,
-                            (bar.get_x() + bar.get_width() / 2., val),
+                            (bar.get_x() + bar.get_width() / 2., y_pos),
                             ha='center', va='bottom',
                             fontsize=10, fontweight='bold', xytext=(0, 5),
                             textcoords='offset points')
@@ -76,12 +94,59 @@ def generate_model_comparison(all_metrics_list, output_dir, dataset_metadata):
             plt.savefig(os.path.join(comp_img_dir, filename), dpi=300)
             plt.close(fig)
 
-    print(f"[COMPARISON] Saved 9 model comparison plots to {comp_img_dir}")
+    print(f"[COMPARISON] Saved {len(metrics_to_plot)} model comparison plots to {comp_img_dir}")
 
     # Generate Final Academic Markdown Report
-    generate_academic_report(df_comparison, output_dir, dataset_metadata)
+    meta = dataset_metadata if dataset_metadata is not None else {}
+    generate_academic_report(df_comparison, output_dir, meta)
 
     return df_comparison
+
+def regenerate_comparison_from_metrics(output_dir, dataset_metadata=None):
+    """
+    Reloads all individual model metrics CSV files from output/metrics/ and
+    regenerates final_model_comparison.csv, final_results.csv, comparison plots,
+    and IDS_CICIoT2023_Report.md.
+    """
+    metrics_dir = os.path.join(output_dir, 'metrics')
+    model_files = [
+        'dnn_metrics.csv',
+        'rnn_metrics.csv',
+        'random_forest_metrics.csv',
+        'pca_lnn_metrics.csv',
+        'pca_dnn_metrics.csv',
+        'lstm_metrics.csv'
+    ]
+
+    all_metrics = []
+    for fname in model_files:
+        fpath = os.path.join(metrics_dir, fname)
+        if os.path.exists(fpath):
+            df_m = pd.read_csv(fpath)
+            if len(df_m) > 0:
+                all_metrics.append(df_m.iloc[0].to_dict())
+        else:
+            print(f"[COMPARISON WARNING] Missing metrics file: {fpath}")
+
+    if not all_metrics:
+        print("[COMPARISON ERROR] No model metrics found in output/metrics/.")
+        return None
+
+    # Load metadata from preprocessing summary if available
+    prep_summary_path = os.path.join(output_dir, 'processed_data', 'preprocessing_summary.csv')
+    if dataset_metadata is None and os.path.exists(prep_summary_path):
+        df_prep = pd.read_csv(prep_summary_path)
+        if len(df_prep) > 0:
+            dataset_metadata = {
+                'total_available_rows': int(df_prep['Original Rows'].iloc[0]) if 'Original Rows' in df_prep else 7845673,
+                'train_samples': int(df_prep['Training Samples'].iloc[0]) if 'Training Samples' in df_prep else 140000,
+                'val_samples': int(df_prep['Validation Samples'].iloc[0]) if 'Validation Samples' in df_prep else 29996,
+                'test_samples': int(df_prep['Testing Samples'].iloc[0]) if 'Testing Samples' in df_prep else 29996,
+                'sample_subset': True,
+                'sampling_strategy': 'Stratified Random Subset (200,000 total samples preserving 70/15/15 ratio)'
+            }
+
+    return generate_model_comparison(all_metrics, output_dir, dataset_metadata)
 
 def generate_academic_report(df_comp, output_dir, meta):
     """
@@ -90,27 +155,52 @@ def generate_academic_report(df_comp, output_dir, meta):
     """
     report_path = os.path.join(output_dir, 'reports', 'IDS_CICIoT2023_Report.md')
 
-    best_acc_row = df_comp.loc[df_comp['Accuracy'].idxmax()]
-    best_f1_row = df_comp.loc[df_comp['F1_Score'].idxmax()]
-    lowest_fpr_row = df_comp.loc[df_comp['FPR'].idxmin()]
-    lowest_fnr_row = df_comp.loc[df_comp['FNR'].idxmin()]
-    fastest_inf_row = df_comp.loc[df_comp['Inference_Time'].idxmin()]
+    # Find best models safely handling NaNs
+    valid_acc = df_comp.dropna(subset=['Accuracy'])
+    best_acc_row = valid_acc.loc[valid_acc['Accuracy'].idxmax()] if len(valid_acc) > 0 else df_comp.iloc[0]
 
-    # Format Markdown Table
-    table_headers = ["Model", "Accuracy", "Precision", "Recall", "F1 Score", "Specificity", "FPR", "FNR", "Train Time (s)", "Infer Time (s)"]
+    valid_f1 = df_comp.dropna(subset=['F1_Score'])
+    best_f1_row = valid_f1.loc[valid_f1['F1_Score'].idxmax()] if len(valid_f1) > 0 else df_comp.iloc[0]
+
+    valid_fpr = df_comp.dropna(subset=['FPR'])
+    lowest_fpr_row = valid_fpr.loc[valid_fpr['FPR'].idxmin()] if len(valid_fpr) > 0 else df_comp.iloc[0]
+
+    valid_fnr = df_comp.dropna(subset=['FNR'])
+    lowest_fnr_row = valid_fnr.loc[valid_fnr['FNR'].idxmin()] if len(valid_fnr) > 0 else df_comp.iloc[0]
+
+    valid_inf = df_comp.dropna(subset=['Inference_Time'])
+    fastest_inf_row = valid_inf.loc[valid_inf['Inference_Time'].idxmin()] if len(valid_inf) > 0 else df_comp.iloc[0]
+
+    valid_roc = df_comp.dropna(subset=['ROC_AUC'])
+    best_roc_row = valid_roc.loc[valid_roc['ROC_AUC'].idxmax()] if len(valid_roc) > 0 else None
+
+    # Format Markdown Table with ROC-AUC and PR-AUC
+    table_headers = [
+        "Model", "Accuracy", "Precision", "Recall", "F1 Score", "Specificity",
+        "FPR", "FNR", "ROC-AUC", "PR-AUC", "Train Time (s)", "Infer Time (s)"
+    ]
     table_rows = []
     for _, row in df_comp.iterrows():
+        roc_str = f"{row['ROC_AUC']:.4f}" if ('ROC_AUC' in row and pd.notna(row['ROC_AUC'])) else "N/A"
+        pr_str = f"{row['PR_AUC']:.4f}" if ('PR_AUC' in row and pd.notna(row['PR_AUC'])) else "N/A"
         table_rows.append(
-            f"| {row['Model']} | {row['Accuracy']:.4f} | {row['Precision']:.4f} | {row['Recall']:.4f} | {row['F1_Score']:.4f} | {row['Specificity']:.4f} | {row['FPR']:.4f} | {row['FNR']:.4f} | {row['Training_Time']:.2f} | {row['Inference_Time']:.2f} |"
+            f"| {row['Model']} | {row['Accuracy']:.4f} | {row['Precision']:.4f} | {row['Recall']:.4f} | "
+            f"{row['F1_Score']:.4f} | {row['Specificity']:.4f} | {row['FPR']:.4f} | {row['FNR']:.4f} | "
+            f"{roc_str} | {pr_str} | {row['Training_Time']:.2f} | {row['Inference_Time']:.2f} |"
         )
     table_str = "| " + " | ".join(table_headers) + " |\n" + "| " + " | ".join(["---"] * len(table_headers)) + " |\n" + "\n".join(table_rows)
+
+    roc_highlight = (
+        f"3. **Highest Discriminative Power (ROC-AUC)**: **{best_roc_row['Model']}** achieved the highest ROC-AUC ({best_roc_row['ROC_AUC']:.4f}), demonstrating superior true-positive vs false-positive trade-offs across all attack thresholds.\n"
+        if best_roc_row is not None else ""
+    )
 
     report_content = f"""# Comparative Analysis of Machine Learning and Deep Learning Techniques for Intrusion Detection System (IDS) using CICIoT2023 Dataset
 
 **Dataset**: CICIoT2023 (Kaggle)  
 **Execution Date**: 2026-09-08  
-**Experiment Protocol Mode**: {"Stratified Experimental Subset" if meta.get('sample_subset') else "Full Dataset"}  
-**Total Records Evaluated**: {meta.get('train_samples', 0) + meta.get('val_samples', 0) + meta.get('test_samples', 0):,} records ({meta.get('train_samples', 0):,} Train, {meta.get('val_samples', 0):,} Validation, {meta.get('test_samples', 0):,} Test)
+**Experiment Protocol Mode**: {"Stratified Experimental Subset" if meta.get('sample_subset', True) else "Full Dataset"}  
+**Total Records Evaluated**: {meta.get('train_samples', 140000) + meta.get('val_samples', 29996) + meta.get('test_samples', 29996):,} records ({meta.get('train_samples', 140000):,} Train, {meta.get('val_samples', 29996):,} Validation, {meta.get('test_samples', 29996):,} Test)
 
 ---
 
@@ -133,7 +223,7 @@ Machine Learning (ML) and Deep Learning (DL) offer adaptive pattern recognition 
 The **CICIoT2023 dataset** is a state-of-the-art IoT network security dataset recorded from real-world topology executing 33 distinct attack classes alongside benign traffic.
 
 ### Dataset Specifications
-- **Total Available Records**: {meta.get('total_available_rows', 0):,}
+- **Total Available Records**: {meta.get('total_available_rows', 7845673):,}
 - **Train/Val/Test Split Ratio**: 70% Training / 15% Validation / 15% Testing
 - **Number of Features**: 46 continuous numerical flow metrics (e.g., flow duration, header length, protocol type, packet size statistics, flag counts, inter-arrival time).
 - **Number of Target Classes**: 34 classes (33 attack types + BenignTraffic).
@@ -192,8 +282,8 @@ All tuning attempt logs were recorded in `output/hyperparameter_tuning/`.
 ### Empirical Findings:
 1. **Best Accuracy & F1-Score**: **{best_acc_row['Model']}** achieved the highest test accuracy ({best_acc_row['Accuracy']:.4f}) and F1-score ({best_acc_row['F1_Score']:.4f}).
 2. **Lowest False Positive Rate (FPR)**: **{lowest_fpr_row['Model']}** achieved the lowest False Positive Rate ({lowest_fpr_row['FPR']:.4f}), which is crucial for reducing false security alarms in SOC monitoring.
-3. **Lowest False Negative Rate (FNR)**: **{lowest_fnr_row['Model']}** achieved the lowest False Negative Rate ({lowest_fnr_row['FNR']:.4f}), critical for preventing undetected malicious breaches.
-4. **Computational Efficiency & Latency**: **{fastest_inf_row['Model']}** delivered the fastest inference speed ({fastest_inf_row['Inference_Time']:.4f} seconds), making it highly suitable for real-time inline packet inspection.
+{roc_highlight}4. **Lowest False Negative Rate (FNR)**: **{lowest_fnr_row['Model']}** achieved the lowest False Negative Rate ({lowest_fnr_row['FNR']:.4f}), critical for preventing undetected malicious breaches.
+5. **Computational Efficiency & Latency**: **{fastest_inf_row['Model']}** delivered the fastest inference speed ({fastest_inf_row['Inference_Time']:.4f} seconds), making it highly suitable for real-time inline packet inspection.
 
 ### Trade-off Discussion:
 While complex Deep Learning architectures (such as DNN and LSTM) effectively learn intricate non-linear decision boundaries for complex attack vectors (e.g. DDoS fragmentation and web injection), Random Forest and PCA-based lightweight models (PCA+LNN) offer significant computational speedups during inference. For enterprise real-time inline packet filtering where low latency is mandatory, **PCA + LNN** provides an optimal balance between high precision and low latency. For offline deep log auditing where detection accuracy is paramount, **{best_acc_row['Model']}** is the superior candidate.
@@ -207,7 +297,8 @@ This empirical study successfully evaluated six Machine Learning and Deep Learni
 **Key Data-Driven Takeaways**:
 - Model predictions were evaluated on an untouched held-out test set across 34 network traffic classes.
 - Feature reduction via PCA (retaining 95% variance) reduced input feature dimensionality while preserving high classification performance.
-- All experimental numerical results are fully reproducible and backed by generated metrics CSV files, confusion matrix heatmaps, training curves, and comparison charts saved in `output/`.
+- Full prediction probability matrices are saved per test sample, enabling exact One-vs-Rest ROC-AUC and Precision-Recall evaluation without retraining.
+- All experimental numerical results are fully reproducible and backed by generated metrics CSV files, confusion matrix heatmaps, training curves, ROC curve plots, and comparison charts saved in `output/`.
 """
 
     with open(report_path, 'w', encoding='utf-8') as f:

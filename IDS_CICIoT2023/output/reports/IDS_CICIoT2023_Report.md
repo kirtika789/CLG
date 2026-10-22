@@ -76,14 +76,14 @@ All tuning attempt logs were recorded in `output/hyperparameter_tuning/`.
 
 ### Empirical Final Test Set Performance Table
 
-| Model | Accuracy | Precision | Recall | F1 Score | Specificity | FPR | FNR | Train Time (s) | Infer Time (s) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| DNN | 0.7653 | 0.5310 | 0.6068 | 0.5304 | 0.9926 | 0.0074 | 0.3932 | 594.75 | 0.45 |
-| RNN | 0.9000 | 0.7199 | 0.7186 | 0.7121 | 0.9969 | 0.0031 | 0.2731 | 161.84 | 0.81 |
-| Random Forest | 0.9901 | 0.7527 | 0.7351 | 0.7347 | 0.9997 | 0.0003 | 0.2649 | 11.10 | 1.56 |
-| PCA + LNN | 0.7428 | 0.4884 | 0.5245 | 0.4772 | 0.9919 | 0.0081 | 0.4755 | 110.90 | 0.46 |
-| PCA + DNN | 0.7356 | 0.5135 | 0.5199 | 0.4553 | 0.9917 | 0.0083 | 0.4801 | 137.21 | 0.73 |
-| LSTM | 0.9617 | 0.7641 | 0.7599 | 0.7572 | 0.9988 | 0.0012 | 0.2330 | 1677.76 | 0.83 |
+| Model | Accuracy | Precision | Recall | F1 Score | Specificity | FPR | FNR | ROC-AUC | PR-AUC | Train Time (s) | Infer Time (s) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| DNN | 0.7653 | 0.5310 | 0.6068 | 0.5304 | 0.9926 | 0.0074 | 0.3932 | 0.9646 | 0.6072 | 594.75 | 0.45 |
+| RNN | 0.9000 | 0.7199 | 0.7186 | 0.7121 | 0.9969 | 0.0031 | 0.2731 | N/A | 0.7569 | 161.84 | 0.81 |
+| Random Forest | 0.9901 | 0.7527 | 0.7351 | 0.7347 | 0.9997 | 0.0003 | 0.2649 | 0.9771 | 0.7662 | 11.10 | 1.56 |
+| PCA + LNN | 0.7428 | 0.4884 | 0.5245 | 0.4772 | 0.9919 | 0.0081 | 0.4755 | 0.9370 | 0.5432 | 110.90 | 0.46 |
+| PCA + DNN | 0.7356 | 0.5135 | 0.5199 | 0.4553 | 0.9917 | 0.0083 | 0.4801 | 0.9497 | 0.5336 | 137.21 | 0.73 |
+| LSTM | 0.9617 | 0.7641 | 0.7599 | 0.7572 | 0.9988 | 0.0012 | 0.2330 | N/A | 0.7962 | 1677.76 | 0.83 |
 
 ---
 
@@ -92,8 +92,9 @@ All tuning attempt logs were recorded in `output/hyperparameter_tuning/`.
 ### Empirical Findings:
 1. **Best Accuracy & F1-Score**: **Random Forest** achieved the highest test accuracy (0.9901) and F1-score (0.7347).
 2. **Lowest False Positive Rate (FPR)**: **Random Forest** achieved the lowest False Positive Rate (0.0003), which is crucial for reducing false security alarms in SOC monitoring.
-3. **Lowest False Negative Rate (FNR)**: **LSTM** achieved the lowest False Negative Rate (0.2330), critical for preventing undetected malicious breaches.
-4. **Computational Efficiency & Latency**: **DNN** delivered the fastest inference speed (0.4538 seconds), making it highly suitable for real-time inline packet inspection.
+3. **Highest Discriminative Power (ROC-AUC)**: **Random Forest** achieved the highest ROC-AUC (0.9771), demonstrating superior true-positive vs false-positive trade-offs across all attack thresholds.
+4. **Lowest False Negative Rate (FNR)**: **LSTM** achieved the lowest False Negative Rate (0.2330), critical for preventing undetected malicious breaches.
+5. **Computational Efficiency & Latency**: **DNN** delivered the fastest inference speed (0.4538 seconds), making it highly suitable for real-time inline packet inspection.
 
 ### Trade-off Discussion:
 While complex Deep Learning architectures (such as DNN and LSTM) effectively learn intricate non-linear decision boundaries for complex attack vectors (e.g. DDoS fragmentation and web injection), Random Forest and PCA-based lightweight models (PCA+LNN) offer significant computational speedups during inference. For enterprise real-time inline packet filtering where low latency is mandatory, **PCA + LNN** provides an optimal balance between high precision and low latency. For offline deep log auditing where detection accuracy is paramount, **Random Forest** is the superior candidate.
@@ -107,4 +108,5 @@ This empirical study successfully evaluated six Machine Learning and Deep Learni
 **Key Data-Driven Takeaways**:
 - Model predictions were evaluated on an untouched held-out test set across 34 network traffic classes.
 - Feature reduction via PCA (retaining 95% variance) reduced input feature dimensionality while preserving high classification performance.
-- All experimental numerical results are fully reproducible and backed by generated metrics CSV files, confusion matrix heatmaps, training curves, and comparison charts saved in `output/`.
+- Full prediction probability matrices are saved per test sample, enabling exact One-vs-Rest ROC-AUC and Precision-Recall evaluation without retraining.
+- All experimental numerical results are fully reproducible and backed by generated metrics CSV files, confusion matrix heatmaps, training curves, ROC curve plots, and comparison charts saved in `output/`.

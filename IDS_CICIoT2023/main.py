@@ -89,11 +89,14 @@ def main():
     print("-" * 90)
 
     for m in all_metrics:
+        roc_disp = f"{m['ROC_AUC']:.4f}" if ('ROC_AUC' in m and pd.notna(m['ROC_AUC'])) else "N/A"
+        pr_disp = f"{m['PR_AUC']:.4f}" if ('PR_AUC' in m and pd.notna(m['PR_AUC'])) else "N/A"
         print(f"[{m['Model']}]")
         print(f"  Accuracy : {m['Accuracy']:.4f}")
         print(f"  Precision: {m['Precision']:.4f}")
         print(f"  Recall   : {m['Recall']:.4f}")
         print(f"  F1-Score : {m['F1_Score']:.4f}")
+        print(f"  ROC-AUC  : {roc_disp} | PR-AUC: {pr_disp}")
         print(f"  FPR      : {m['FPR']:.4f} | FNR: {m['FNR']:.4f}")
         print(f"  Train Time: {m['Training_Time']:.2f}s | Infer Time: {m['Inference_Time']:.2f}s")
         print("-" * 90)
