@@ -47,15 +47,49 @@ IDS_CICIoT2023/
 
 ## 🚀 Installation & Execution
 
-### 1. Requirements
-Install dependencies using `pip`:
+### 1. Requirements & Environment
+Activate the pre-configured virtual environment:
+
+```powershell
+# Windows PowerShell:
+.\ids_env\Scripts\Activate.ps1
+```
+
+Or install dependencies manually via `pip`:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Run Pipeline End-to-End
-To run the complete pipeline with hyperparameter tuning, model training, test evaluation, comparison charts, and report generation:
+### 2. Run Verification Suite (Optional)
+To verify all multiclass ROC-AUC calculations, confusion matrix handlers, and models on synthetic data:
+
+```bash
+python verify_roc_auc.py
+```
+
+### 3. Execution Options
+
+#### A. Generate Comparison Charts & Academic Report (Fastest — 2 seconds)
+Regenerates all 11 high-resolution comparison plots and the comprehensive 8-chapter academic markdown report without retraining:
+
+```bash
+python main.py --report-only
+```
+
+#### B. Fast Test Run with a Single Model (e.g., Random Forest or DNN)
+Run hyperparameter tuning, training, and evaluation on a custom subset size:
+
+```bash
+# Fast test run with Random Forest (5,000 samples ~ 5 seconds)
+python main.py --model rf --sample-size 5000
+
+# Run specific architecture (options: dnn, rnn, rf, pca_lnn, pca_dnn, lstm)
+python main.py --model dnn --sample-size 50000
+```
+
+#### C. Full Pipeline End-to-End (All 6 Models)
+To run the full end-to-end benchmark with all 6 models:
 
 ```bash
 # Default mode: Stratified Experimental Subset (200,000 samples)

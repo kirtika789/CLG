@@ -170,6 +170,12 @@ def run_rnn_experiment(dataset_dict, output_dir, seq_length=10):
         )
     training_time = t_train.duration
 
+    models_save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_models")
+    os.makedirs(models_save_dir, exist_ok=True)
+    checkpoint_path = os.path.join(models_save_dir, "best_rnn_model.keras")
+    final_model.save(checkpoint_path)
+    print(f"[RNN TRAINING] Saved trained model to {checkpoint_path}")
+
     # Evaluation on Test set
     print("[RNN FINAL EVALUATION] Evaluating on untouched test set...")
     with Timer() as t_infer:

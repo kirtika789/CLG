@@ -1,6 +1,9 @@
 import os
 import sys
 import argparse
+import pandas as pd
+# pyrefly: ignore[missing-import]
+import numpy as np
 
 # Ensure current project directory is in python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -18,12 +21,14 @@ from models.random_forest import run_random_forest_experiment
 from models.pca_lnn import run_pca_lnn_experiment
 from models.pca_dnn import run_pca_dnn_experiment
 from models.lstm import run_lstm_experiment
-from comparison import generate_model_comparison
+from comparison import generate_model_comparison, regenerate_comparison_from_metrics
 
 def main():
     parser = argparse.ArgumentParser(description="IDS CICIoT2023 Machine Learning & Deep Learning Experiment Pipeline")
     parser.add_argument('--full-dataset', action='store_true', help="Use complete 7.85 million dataset instead of stratified experimental subset")
     parser.add_argument('--sample-size', type=int, default=200000, help="Number of records for experimental subset (default: 200,000)")
+    parser.add_argument('--model', type=str, default='all', choices=['all', 'dnn', 'rnn', 'rf', 'random_forest', 'pca_lnn', 'pca_dnn', 'lstm'], help="Specific model to run, or 'all' (default: all)")
+    parser.add_argument('--report-only', action='store_true', help="Regenerate comparison charts and markdown report from existing metrics without retraining")
     args = parser.parse_args()
 
     print("==========================================================================================")
@@ -34,6 +39,18 @@ def main():
     set_seeds(42)
     ensure_directories(current_dir)
     output_dir = os.path.join(current_dir, "output")
+
+    # If --report-only, regenerate directly and exit
+    if args.report_only:
+        print("\n[REPORT MODE] Regenerating comparison charts and academic report from saved metrics...")
+        df_comp = regenerate_comparison_from_metrics(output_dir)
+        if df_comp is not None:
+            print("\n" + "="*90)
+            print("                                UPDATED MODEL COMPARISON                                  ")
+            print("="*90)
+            print(df_comp[['Model', 'Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC', 'Training_Time', 'Inference_Time']].to_string(index=False))
+            print("="*90)
+        return
 
     # 2. Data Loading & Preprocessing
     sample_subset = not args.full_dataset
@@ -50,31 +67,59 @@ def main():
     save_preprocessing_summary(dataset_dict, prep_summary_path)
 
     # 4. Model Experiments
+    model_choice = args.model.lower()
+    run_all = (model_choice == 'all')
     all_metrics = []
 
     # Model 1: DNN
-    m1_metrics, m1_cfg = run_dnn_experiment(dataset_dict, output_dir)
-    all_metrics.append(m1_metrics)
+    if run_all or model_choice == 'dnn':
+        m1_metrics, m1_cfg = run_dnn_experiment(dataset_dict, output_dir)
+        all_metrics.append(m1_metrics)
 
     # Model 2: RNN
-    m2_metrics, m2_cfg = run_rnn_experiment(dataset_dict, output_dir, seq_length=10)
-    all_metrics.append(m2_metrics)
+    if run_all or model_choice == 'rnn':
+        m2_metrics, m2_cfg = run_rnn_experiment(dataset_dict, output_dir, seq_length=10)
+        all_metrics.append(m2_metrics)
 
     # Model 3: Random Forest
-    m3_metrics, m3_cfg = run_random_forest_experiment(dataset_dict, output_dir)
-    all_metrics.append(m3_metrics)
+    if run_all or model_choice in ['rf', 'random_forest']:
+        m3_metrics, m3_cfg = run_random_forest_experiment(dataset_dict, output_dir)
+        all_metrics.append(m3_metrics)
 
     # Model 4: PCA + LNN
-    m4_metrics, m4_cfg = run_pca_lnn_experiment(dataset_dict, output_dir)
-    all_metrics.append(m4_metrics)
+    if run_all or model_choice == 'pca_lnn':
+        m4_metrics, m4_cfg = run_pca_lnn_experiment(dataset_dict, output_dir)
+        all_metrics.append(m4_metrics)
 
     # Model 5: PCA + DNN
-    m5_metrics, m5_cfg = run_pca_dnn_experiment(dataset_dict, output_dir)
-    all_metrics.append(m5_metrics)
+    if run_all or model_choice == 'pca_dnn':
+        m5_metrics, m5_cfg = run_pca_dnn_experiment(dataset_dict, output_dir)
+        all_metrics.append(m5_metrics)
 
     # Model 6: LSTM
-    m6_metrics, m6_cfg = run_lstm_experiment(dataset_dict, output_dir, seq_length=10)
-    all_metrics.append(m6_metrics)
+    if run_all or model_choice == 'lstm':
+        m6_metrics, m6_cfg = run_lstm_experiment(dataset_dict, output_dir, seq_length=10)
+        all_metrics.append(m6_metrics)
+
+    # If running a subset of models, load cached metrics for the rest to build a complete report
+    if not run_all:
+        metrics_dir = os.path.join(output_dir, 'metrics')
+        model_file_map = {
+            'DNN': 'dnn_metrics.csv',
+            'RNN': 'rnn_metrics.csv',
+            'Random Forest': 'random_forest_metrics.csv',
+            'PCA + LNN': 'pca_lnn_metrics.csv',
+            'PCA + DNN': 'pca_dnn_metrics.csv',
+            'LSTM': 'lstm_metrics.csv'
+        }
+        already_run = {m['Model'] for m in all_metrics}
+        for mod_name, fname in model_file_map.items():
+            if mod_name not in already_run:
+                fpath = os.path.join(metrics_dir, fname)
+                if os.path.exists(fpath):
+                    df_m = pd.read_csv(fpath)
+                    if len(df_m) > 0:
+                        all_metrics.append(df_m.iloc[0].to_dict())
 
     # 5. Consolidation, Comparison & Academic Report Generation
     print("\n==================== CONSOLIDATING RESULTS & GENERATING REPORT ====================")

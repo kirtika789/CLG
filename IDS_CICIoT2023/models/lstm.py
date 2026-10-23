@@ -87,7 +87,7 @@ def compute_stabilized_class_weights(y_train, max_weight=35.0):
     }
     return clamped_weights
 
-def run_lstm_experiment(dataset_dict, output_dir, seq_length=5):
+def run_lstm_experiment(dataset_dict, output_dir, seq_length=10):
     """
     Runs hyperparameter tuning, model training, evaluation, and saving for improved LSTM.
     

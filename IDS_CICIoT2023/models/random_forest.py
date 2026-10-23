@@ -142,7 +142,7 @@ def run_random_forest_experiment(dataset_dict, output_dir):
     # Plot Top 20 Features
     fig, ax = plt.subplots(figsize=(10, 8))
     top20 = df_feat.head(20)
-    sns.barplot(x='Importance', y='Feature', data=top20, palette='viridis', ax=ax)
+    sns.barplot(x='Importance', y='Feature', data=top20, hue='Feature', palette='viridis', legend=False, ax=ax)
     ax.set_title('Random Forest — Top 20 Feature Importances', fontsize=14, fontweight='bold')
     ax.set_xlabel('Importance Score', fontsize=12)
     ax.set_ylabel('Feature Name', fontsize=12)
