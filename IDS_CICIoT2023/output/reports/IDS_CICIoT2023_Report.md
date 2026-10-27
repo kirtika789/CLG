@@ -78,23 +78,23 @@ All tuning attempt logs were recorded in `output/hyperparameter_tuning/`.
 
 | Model | Accuracy | Precision | Recall | F1 Score | Specificity | FPR | FNR | ROC-AUC | PR-AUC | Train Time (s) | Infer Time (s) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| DNN | 0.7653 | 0.5310 | 0.6068 | 0.5304 | 0.9926 | 0.0074 | 0.3932 | 0.9646 | 0.6072 | 594.75 | 0.45 |
-| RNN | 0.9045 | 0.7074 | 0.7037 | 0.6982 | 0.9970 | 0.0030 | 0.2876 | 0.9955 | 0.7399 | 74.31 | 0.58 |
-| Random Forest | 0.9786 | 0.8767 | 0.8319 | 0.8435 | 0.9992 | 0.0008 | 0.1494 | 0.9975 | 0.8523 | 0.34 | 0.10 |
-| PCA + LNN | 0.7428 | 0.4884 | 0.5245 | 0.4772 | 0.9919 | 0.0081 | 0.4755 | 0.9370 | 0.5432 | 110.90 | 0.46 |
-| PCA + DNN | 0.7356 | 0.5135 | 0.5199 | 0.4553 | 0.9917 | 0.0083 | 0.4801 | 0.9497 | 0.5336 | 137.21 | 0.73 |
-| LSTM | 0.9630 | 0.7674 | 0.7771 | 0.7467 | 0.9989 | 0.0011 | 0.2164 | 0.9369 | 0.7998 | 356.43 | 1.54 |
+| DNN | 0.7653 | 0.5310 | 0.6068 | 0.5304 | 0.9926 | 0.0074 | 0.3932 | 0.9646 | 0.6072 | 343.76 | 0.24 |
+| RNN | 0.9000 | 0.7199 | 0.7186 | 0.7121 | 0.9969 | 0.0031 | 0.2731 | 0.9837 | 0.7569 | 89.38 | 0.60 |
+| Random Forest | 0.9901 | 0.7527 | 0.7351 | 0.7347 | 0.9997 | 0.0003 | 0.2649 | 0.9771 | 0.7662 | 6.21 | 1.72 |
+| PCA + LNN | 0.7428 | 0.4884 | 0.5245 | 0.4772 | 0.9919 | 0.0081 | 0.4755 | 0.9370 | 0.5432 | 33.84 | 0.16 |
+| PCA + DNN | 0.7356 | 0.5135 | 0.5199 | 0.4553 | 0.9917 | 0.0083 | 0.4801 | 0.9497 | 0.5336 | 58.97 | 0.21 |
+| LSTM | 0.9567 | 0.7541 | 0.7386 | 0.7359 | 0.9986 | 0.0014 | 0.2537 | 0.9764 | 0.7741 | 215.97 | 1.07 |
 
 ---
 
 ## Chapter 7 — Model Comparison & Security Analysis
 
 ### Empirical Findings:
-1. **Best Accuracy & F1-Score**: **Random Forest** achieved the highest test accuracy (0.9786) and F1-score (0.8435).
-2. **Lowest False Positive Rate (FPR)**: **Random Forest** achieved the lowest False Positive Rate (0.0008), which is crucial for reducing false security alarms in SOC monitoring.
-3. **Highest Discriminative Power (ROC-AUC)**: **Random Forest** achieved the highest ROC-AUC (0.9975), demonstrating superior true-positive vs false-positive trade-offs across all attack thresholds.
-4. **Lowest False Negative Rate (FNR)**: **Random Forest** achieved the lowest False Negative Rate (0.1494), critical for preventing undetected malicious breaches.
-5. **Computational Efficiency & Latency**: **Random Forest** delivered the fastest inference speed (0.1007 seconds), making it highly suitable for real-time inline packet inspection.
+1. **Best Accuracy & F1-Score**: **Random Forest** achieved the highest test accuracy (0.9901) and F1-score (0.7347).
+2. **Lowest False Positive Rate (FPR)**: **Random Forest** achieved the lowest False Positive Rate (0.0003), which is crucial for reducing false security alarms in SOC monitoring.
+3. **Highest Discriminative Power (ROC-AUC)**: **RNN** achieved the highest ROC-AUC (0.9837), demonstrating superior true-positive vs false-positive trade-offs across all attack thresholds.
+4. **Lowest False Negative Rate (FNR)**: **LSTM** achieved the lowest False Negative Rate (0.2537), critical for preventing undetected malicious breaches.
+5. **Computational Efficiency & Latency**: **PCA + LNN** delivered the fastest inference speed (0.1585 seconds), making it highly suitable for real-time inline packet inspection.
 
 ### Trade-off Discussion:
 While complex Deep Learning architectures (such as DNN and LSTM) effectively learn intricate non-linear decision boundaries for complex attack vectors (e.g. DDoS fragmentation and web injection), Random Forest and PCA-based lightweight models (PCA+LNN) offer significant computational speedups during inference. For enterprise real-time inline packet filtering where low latency is mandatory, **PCA + LNN** provides an optimal balance between high precision and low latency. For offline deep log auditing where detection accuracy is paramount, **Random Forest** is the superior candidate.

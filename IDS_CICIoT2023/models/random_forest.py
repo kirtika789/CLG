@@ -2,11 +2,14 @@ import os
 import time
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 
 from utils import set_seeds, Timer
+from tuning.hyperparams import RF_GRID
 from evaluation import (
     calculate_comprehensive_metrics,
     plot_and_save_confusion_matrix,
@@ -14,7 +17,22 @@ from evaluation import (
     save_complete_predictions
 )
 
-def run_random_forest_experiment(dataset_dict, output_dir):
+def align_probabilities(probs, classes_seen, num_classes):
+    """
+    Ensures predicted probability matrix aligns with the full class spectrum (num_classes).
+    Maps columns according to classes seen during training, and fills unobserved classes with 0.0.
+    """
+    if probs is None:
+        return None
+    if probs.shape[1] == num_classes:
+        return probs
+    aligned_probs = np.zeros((len(probs), num_classes), dtype=np.float64)
+    for col_idx, class_idx in enumerate(classes_seen):
+        if class_idx < num_classes:
+            aligned_probs[:, class_idx] = probs[:, col_idx]
+    return aligned_probs
+
+def run_random_forest_experiment(dataset_dict, output_dir, hyperparam_configs=None):
     """
     Runs hyperparameter tuning, model training, feature importance analysis,
     evaluation, and output export for Random Forest.
@@ -22,19 +40,27 @@ def run_random_forest_experiment(dataset_dict, output_dir):
     set_seeds(42)
     print("\n==================== MODEL 3: RANDOM FOREST ====================")
 
+    # Ensure all required output subdirectories exist
+    tuning_dir = os.path.join(output_dir, 'hyperparameter_tuning')
+    metrics_dir = os.path.join(output_dir, 'metrics')
+    cm_dir = os.path.join(output_dir, 'confusion_matrices')
+    feat_dir = os.path.join(output_dir, 'feature_analysis')
+    pred_dir = os.path.join(output_dir, 'predictions')
+    comp_dir = os.path.join(output_dir, 'model_comparison')
+
+    for d in [tuning_dir, metrics_dir, cm_dir, feat_dir, pred_dir, comp_dir]:
+        os.makedirs(d, exist_ok=True)
+
     X_train, y_train = dataset_dict['X_train'], dataset_dict['y_train']
     X_val, y_val = dataset_dict['X_val'], dataset_dict['y_val']
     X_test, y_test = dataset_dict['X_test'], dataset_dict['y_test']
     class_names = dataset_dict['class_names']
-    feature_names = dataset_dict['feature_names']
+    feature_names = dataset_dict.get('feature_names', [f"Feature_{i}" for i in range(X_train.shape[1])])
+    num_classes = len(class_names)
 
-    # Search space
-    hyperparam_configs = [
-        {'n_estimators': 100, 'max_depth': 20, 'min_samples_split': 2, 'max_features': 'sqrt'},
-        {'n_estimators': 200, 'max_depth': 30, 'min_samples_split': 5, 'max_features': 'sqrt'},
-        {'n_estimators': 150, 'max_depth': None, 'min_samples_split': 2, 'max_features': 'log2'},
-        {'n_estimators': 250, 'max_depth': 25, 'min_samples_split': 4, 'max_features': 'sqrt'},
-    ]
+    # Search space from hyperparams or passed configs
+    if hyperparam_configs is None:
+        hyperparam_configs = RF_GRID
 
     tuning_results = []
     best_val_f1 = -1.0
@@ -59,6 +85,7 @@ def run_random_forest_experiment(dataset_dict, output_dir):
         rf.fit(X_train, y_train)
 
         val_probs = rf.predict_proba(X_val)
+        val_probs = align_probabilities(val_probs, rf.classes_, num_classes)
         val_preds = rf.predict(X_val)
 
         val_metrics, _ = calculate_comprehensive_metrics(y_val, val_preds, val_probs, class_names)
@@ -84,9 +111,13 @@ def run_random_forest_experiment(dataset_dict, output_dir):
             best_config = cfg
             best_rf_model = rf
 
+    # Fallback if no config improved score
+    if best_config is None and len(hyperparam_configs) > 0:
+        best_config = hyperparam_configs[0]
+
     # Save tuning CSV
     df_tuning = pd.DataFrame(tuning_results)
-    tuning_csv_path = os.path.join(output_dir, 'hyperparameter_tuning', 'random_forest_tuning_results.csv')
+    tuning_csv_path = os.path.join(tuning_dir, 'random_forest_tuning_results.csv')
     df_tuning.to_csv(tuning_csv_path, index=False)
     print(f"[RANDOM FOREST TUNING] Saved all tuning results to {tuning_csv_path}")
 
@@ -110,6 +141,7 @@ def run_random_forest_experiment(dataset_dict, output_dir):
     print("[RANDOM FOREST FINAL EVALUATION] Evaluating on untouched test set...")
     with Timer() as t_infer:
         test_probs = final_rf.predict_proba(X_test)
+        test_probs = align_probabilities(test_probs, final_rf.classes_, num_classes)
         test_preds = final_rf.predict(X_test)
     inference_time = t_infer.duration
 
@@ -122,21 +154,22 @@ def run_random_forest_experiment(dataset_dict, output_dir):
 
     # Save metrics
     df_metrics = pd.DataFrame([test_metrics])
-    df_metrics.to_csv(os.path.join(output_dir, 'metrics', 'random_forest_metrics.csv'), index=False)
+    df_metrics.to_csv(os.path.join(metrics_dir, 'random_forest_metrics.csv'), index=False)
 
     # Save confusion matrix
-    cm_png_path = os.path.join(output_dir, 'confusion_matrices', 'random_forest_confusion_matrix.png')
-    cm_csv_path = os.path.join(output_dir, 'confusion_matrices', 'random_forest_confusion_matrix.csv')
+    cm_png_path = os.path.join(cm_dir, 'random_forest_confusion_matrix.png')
+    cm_csv_path = os.path.join(cm_dir, 'random_forest_confusion_matrix.csv')
     plot_and_save_confusion_matrix(cm, class_names, cm_png_path, cm_csv_path, model_name="Random Forest")
 
     # Feature Importance Analysis
     importances = final_rf.feature_importances_
+    feat_names = feature_names if len(feature_names) == len(importances) else [f'Feature_{i}' for i in range(len(importances))]
     df_feat = pd.DataFrame({
-        'Feature': feature_names,
+        'Feature': feat_names,
         'Importance': importances
     }).sort_values(by='Importance', ascending=False).reset_index(drop=True)
 
-    feat_csv_path = os.path.join(output_dir, 'feature_analysis', 'random_forest_feature_importance.csv')
+    feat_csv_path = os.path.join(feat_dir, 'random_forest_feature_importance.csv')
     df_feat.to_csv(feat_csv_path, index=False)
 
     # Plot Top 20 Features
@@ -147,18 +180,18 @@ def run_random_forest_experiment(dataset_dict, output_dir):
     ax.set_xlabel('Importance Score', fontsize=12)
     ax.set_ylabel('Feature Name', fontsize=12)
     plt.tight_layout()
-    top_feat_png_path = os.path.join(output_dir, 'feature_analysis', 'random_forest_top_features.png')
+    top_feat_png_path = os.path.join(feat_dir, 'random_forest_top_features.png')
     plt.savefig(top_feat_png_path, dpi=300)
     plt.close(fig)
 
     print(f"[FEATURE ANALYSIS] Saved Random Forest feature importances to {feat_csv_path} and {top_feat_png_path}")
 
     # Save Predictions with Complete Probability Matrix
-    preds_csv_path = os.path.join(output_dir, 'predictions', 'random_forest_predictions.csv')
+    preds_csv_path = os.path.join(pred_dir, 'random_forest_predictions.csv')
     save_complete_predictions(y_test, test_preds, test_probs, class_names, preds_csv_path, model_name="Random Forest")
 
     # Plot & Save One-vs-Rest ROC Curves
-    roc_png_path = os.path.join(output_dir, 'model_comparison', 'random_forest_roc_curve.png')
+    roc_png_path = os.path.join(comp_dir, 'random_forest_roc_curve.png')
     plot_and_save_roc_curves(y_test, test_probs, class_names, roc_png_path, model_name="Random Forest")
 
     return test_metrics, best_config

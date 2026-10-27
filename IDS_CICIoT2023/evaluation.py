@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import (
@@ -226,7 +228,8 @@ def calculate_comprehensive_metrics(y_true, y_pred, y_prob=None, class_names=Non
                 y_true_bin = np.hstack([1 - y_true_bin, y_true_bin])
 
             pr_aucs = []
-            for i in range(y_true_bin.shape[1]):
+            max_c = min(y_true_bin.shape[1], y_prob.shape[1])
+            for i in range(max_c):
                 if np.sum(y_true_bin[:, i]) > 0:
                     p, r, _ = precision_recall_curve(y_true_bin[:, i], y_prob[:, i])
                     pr_aucs.append(auc(r, p))
@@ -275,7 +278,7 @@ def plot_and_save_roc_curves(y_true, y_prob, class_names, output_png_path, model
     roc_auc_dict = {}
 
     valid_classes = []
-    for i in range(n_classes):
+    for i in range(min(n_classes, y_prob.shape[1])):
         if np.sum(y_true_bin[:, i]) > 0 and np.sum(y_true_bin[:, i]) < len(y_true):
             fpr, tpr, _ = roc_curve(y_true_bin[:, i], y_prob[:, i])
             fpr_dict[i] = fpr
@@ -360,7 +363,10 @@ def save_complete_predictions(y_true, y_pred, y_prob, class_names, output_csv_pa
     # Add individual probability columns for all classes
     for c_idx, c_name in enumerate(class_names):
         col_name = f"prob_{c_name}"
-        data_dict[col_name] = y_prob[:, c_idx]
+        if c_idx < y_prob.shape[1]:
+            data_dict[col_name] = y_prob[:, c_idx]
+        else:
+            data_dict[col_name] = np.zeros(n_samples, dtype=np.float64)
 
     df_preds = pd.DataFrame(data_dict)
     df_preds.to_csv(output_csv_path, index=False)

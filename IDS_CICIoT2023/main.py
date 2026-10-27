@@ -1,5 +1,12 @@
 import os
 import sys
+
+# Configure headless Matplotlib backend before any other imports to prevent
+# Tkinter initialization on Windows, which causes fatal thread crashes (Tcl_AsyncDelete)
+# during multithreaded/multiprocess operations like Random Forest (joblib n_jobs=-1).
+import matplotlib
+matplotlib.use('Agg')
+
 import argparse
 import pandas as pd
 # pyrefly: ignore[missing-import]
