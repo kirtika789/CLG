@@ -11,6 +11,8 @@ from sklearn.metrics import (
     precision_recall_curve, roc_curve, auc
 )
 from sklearn.preprocessing import label_binarize
+from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
+from sklearn.base import clone
 
 def calculate_multiclass_roc_auc(y_true, y_prob, class_names=None):
     """
@@ -444,3 +446,116 @@ def plot_and_save_training_curves(history, accuracy_png_path, loss_png_path, mod
 
     print(f"[EVALUATION] Saved accuracy curve: {accuracy_png_path}")
     print(f"[EVALUATION] Saved loss curve: {loss_png_path}")
+
+def perform_5_fold_cv(
+    model_or_builder,
+    X,
+    y,
+    is_keras=False,
+    model_kwargs=None,
+    fit_kwargs=None,
+    n_splits=5,
+    random_state=42,
+    max_samples=30000,
+    model_name="Model"
+):
+    """
+    Performs 5-Fold Stratified Cross-Validation to evaluate generalization accuracy.
+    Handles both scikit-learn estimators and Keras model factory callables.
+    
+    Parameters:
+    -----------
+    model_or_builder : sklearn estimator or callable
+        Trained or unfitted estimator (cloned per fold) or Keras model creation function.
+    X : np.ndarray
+        Training features or sequence tensors (2D or 3D).
+    y : np.ndarray
+        Training ground truth class labels (1D array of integers).
+    is_keras : bool, default=False
+        Whether model_or_builder is a Keras model factory.
+    model_kwargs : dict, optional
+        Keyword arguments passed to model_or_builder if is_keras is True.
+    fit_kwargs : dict, optional
+        Keyword arguments passed to model.fit (e.g. epochs, batch_size, class_weight).
+    n_splits : int, default=5
+        Number of cross-validation folds.
+    random_state : int, default=42
+        Seed for stratified fold splitting.
+    max_samples : int, default=30000
+        Maximum sample count used for CV to maintain high throughput and avoid excessive runtimes.
+        If len(X) <= max_samples, full data is used.
+    model_name : str, default="Model"
+        Name of model for progress reporting.
+        
+    Returns:
+    --------
+    cv_mean : float
+        Mean validation accuracy across the 5 folds.
+    cv_std : float
+        Standard deviation of validation accuracy across the 5 folds.
+    cv_scores : list of float
+        Individual fold validation accuracies.
+    """
+    X = np.asarray(X)
+    y = np.asarray(y)
+
+    # Subsample if dataset is exceptionally large for fast, responsive execution
+    if max_samples is not None and len(X) > max_samples:
+        try:
+            sss = StratifiedShuffleSplit(n_splits=1, train_size=max_samples, random_state=random_state)
+            sub_idx, _ = next(sss.split(X, y))
+        except ValueError:
+            rng = np.random.RandomState(random_state)
+            sub_idx = rng.choice(len(X), size=max_samples, replace=False)
+        X_cv = X[sub_idx]
+        y_cv = y[sub_idx]
+        print(f"[{model_name} 5-FOLD CV] Subsampled {len(X):,} -> {len(X_cv):,} records for 5-fold cross-validation...")
+    else:
+        X_cv = X
+        y_cv = y
+        print(f"[{model_name} 5-FOLD CV] Using {len(X_cv):,} records for 5-fold cross-validation...")
+
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    cv_scores = []
+
+    for fold_idx, (train_idx, val_idx) in enumerate(skf.split(X_cv, y_cv)):
+        X_fold_train, y_fold_train = X_cv[train_idx], y_cv[train_idx]
+        X_fold_val, y_fold_val = X_cv[val_idx], y_cv[val_idx]
+
+        if is_keras:
+            import tensorflow as tf
+            tf.keras.backend.clear_session()
+            fold_model = model_or_builder(**(model_kwargs or {}))
+            
+            fold_fit_params = dict(fit_kwargs or {})
+            epochs = fold_fit_params.pop('epochs', 5)
+            batch_size = fold_fit_params.pop('batch_size', 128)
+            class_weight = fold_fit_params.pop('class_weight', None)
+            
+            early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=2, restore_best_weights=True)
+            callbacks = [early_stop]
+            
+            fold_model.fit(
+                X_fold_train, y_fold_train,
+                validation_data=(X_fold_val, y_fold_val),
+                epochs=epochs,
+                batch_size=batch_size,
+                class_weight=class_weight,
+                callbacks=callbacks,
+                verbose=0
+            )
+            val_probs = fold_model.predict(X_fold_val, batch_size=256, verbose=0)
+            val_preds = np.argmax(val_probs, axis=1)
+        else:
+            fold_model = clone(model_or_builder)
+            fold_model.fit(X_fold_train, y_fold_train)
+            val_preds = fold_model.predict(X_fold_val)
+
+        acc = float(accuracy_score(y_fold_val, val_preds))
+        cv_scores.append(acc)
+        print(f"  [{model_name} 5-FOLD CV] Fold {fold_idx + 1}/{n_splits} Validation Accuracy: {acc:.4f}")
+
+    cv_mean = float(np.mean(cv_scores))
+    cv_std = float(np.std(cv_scores))
+    print(f"[{model_name} 5-FOLD CV RESULT] Mean Validation Accuracy: {cv_mean:.4f} (+/- {cv_std:.4f})\n")
+    return cv_mean, cv_std, cv_scores

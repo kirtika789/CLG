@@ -55,7 +55,8 @@ def main():
             print("\n" + "="*90)
             print("                                UPDATED MODEL COMPARISON                                  ")
             print("="*90)
-            print(df_comp[['Model', 'Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC', 'Training_Time', 'Inference_Time']].to_string(index=False))
+            disp_cols = [c for c in ['Model', 'Accuracy', 'Train_Accuracy', 'Val_Accuracy', 'CV_Accuracy', 'Precision', 'Recall', 'F1_Score', 'ROC_AUC', 'Training_Time', 'Inference_Time'] if c in df_comp.columns]
+            print(df_comp[disp_cols].to_string(index=False))
             print("="*90)
         return
 
@@ -144,7 +145,17 @@ def main():
         roc_disp = f"{m['ROC_AUC']:.4f}" if ('ROC_AUC' in m and pd.notna(m['ROC_AUC'])) else "N/A"
         pr_disp = f"{m['PR_AUC']:.4f}" if ('PR_AUC' in m and pd.notna(m['PR_AUC'])) else "N/A"
         print(f"[{m['Model']}]")
-        print(f"  Accuracy : {m['Accuracy']:.4f}")
+        train_disp = f"{m['Train_Accuracy']:.4f}" if ('Train_Accuracy' in m and pd.notna(m['Train_Accuracy'])) else "N/A"
+        val_disp = f"{m['Val_Accuracy']:.4f}" if ('Val_Accuracy' in m and pd.notna(m['Val_Accuracy'])) else "N/A"
+        if 'CV_Accuracy' in m and pd.notna(m['CV_Accuracy']):
+            cv_std_disp = f" (±{m['CV_Std']:.4f})" if ('CV_Std' in m and pd.notna(m['CV_Std'])) else ""
+            cv_disp = f"{m['CV_Accuracy']:.4f}{cv_std_disp}"
+        else:
+            cv_disp = "N/A"
+        print(f"  Test Accuracy : {m['Accuracy']:.4f}")
+        print(f"  Train Accuracy: {train_disp}")
+        print(f"  Val Accuracy  : {val_disp}")
+        print(f"  5-Fold CV Acc : {cv_disp}")
         print(f"  Precision: {m['Precision']:.4f}")
         print(f"  Recall   : {m['Recall']:.4f}")
         print(f"  F1-Score : {m['F1_Score']:.4f}")
@@ -155,7 +166,10 @@ def main():
 
     best_model_row = df_comp.loc[df_comp['F1_Score'].idxmax()]
     print(f"BEST PERFORMING MODEL (by F1-Score): {best_model_row['Model']}")
-    print(f"  Accuracy: {best_model_row['Accuracy']:.4f} | F1: {best_model_row['F1_Score']:.4f}")
+    print(f"  Test Accuracy: {best_model_row['Accuracy']:.4f} | F1: {best_model_row['F1_Score']:.4f}")
+    if 'Train_Accuracy' in best_model_row and pd.notna(best_model_row['Train_Accuracy']):
+        cv_disp_best = f"{best_model_row['CV_Accuracy']:.4f}" if ('CV_Accuracy' in best_model_row and pd.notna(best_model_row['CV_Accuracy'])) else "N/A"
+        print(f"  Train Accuracy: {best_model_row['Train_Accuracy']:.4f} | Val Accuracy: {best_model_row.get('Val_Accuracy', np.nan):.4f} | 5-Fold CV: {cv_disp_best}")
     print(f"All generated metrics, plots, and report saved in: {output_dir}")
     print("="*90)
 

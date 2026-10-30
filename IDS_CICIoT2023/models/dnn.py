@@ -8,6 +8,7 @@ from tensorflow.keras.layers import Input, Dense, Dropout, BatchNormalization
 from tensorflow.keras.optimizers import Adam, RMSprop
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.regularizers import l2
+from sklearn.metrics import accuracy_score
 
 # Assuming these are your local custom modules
 from utils import set_seeds, Timer
@@ -16,7 +17,8 @@ from evaluation import (
     plot_and_save_confusion_matrix,
     plot_and_save_training_curves,
     plot_and_save_roc_curves,
-    save_complete_predictions
+    save_complete_predictions,
+    perform_5_fold_cv
 )
 
 def create_dnn_model(input_dim, num_classes, layers_config=[256, 128], dropout_rate=0.2, learning_rate=0.001, optimizer_name='adam'):
@@ -190,7 +192,46 @@ def run_dnn_experiment(dataset_dict, output_dir):
     test_metrics['Inference_Time'] = float(inference_time)
     test_metrics['Model'] = 'DNN'
 
-    print(f"[DNN RESULTS] Test Accuracy: {test_metrics['Accuracy']:.4f} | Precision: {test_metrics['Precision']:.4f} | Recall: {test_metrics['Recall']:.4f} | F1: {test_metrics['F1_Score']:.4f}")
+    # Compute Training, Validation, and 5-Fold Cross-Validation Accuracies
+    print("[DNN ACCURACY EVALUATION] Calculating training and validation accuracies...")
+    train_probs = final_model.predict(X_train, batch_size=256, verbose=0)
+    train_preds = np.argmax(train_probs, axis=1)
+    train_accuracy = float(accuracy_score(y_train, train_preds))
+
+    val_probs = final_model.predict(X_val, batch_size=256, verbose=0)
+    val_preds = np.argmax(val_probs, axis=1)
+    val_accuracy = float(accuracy_score(y_val, val_preds))
+
+    print("[DNN 5-FOLD CV] Running 5-fold stratified cross-validation...")
+    cv_mean, cv_std, _ = perform_5_fold_cv(
+        model_or_builder=create_dnn_model,
+        X=X_train,
+        y=y_train,
+        is_keras=True,
+        model_kwargs={
+            'input_dim': input_dim,
+            'num_classes': num_classes,
+            'layers_config': best_config['layers'],
+            'dropout_rate': best_config['dropout'],
+            'learning_rate': best_config['lr'],
+            'optimizer_name': best_config['opt']
+        },
+        fit_kwargs={
+            'epochs': 10,
+            'batch_size': best_config['batch_size'],
+            'class_weight': class_weights
+        },
+        model_name="DNN"
+    )
+
+    test_metrics['Train_Accuracy'] = train_accuracy
+    test_metrics['Val_Accuracy'] = val_accuracy
+    test_metrics['CV_Accuracy'] = cv_mean
+    test_metrics['CV_Std'] = cv_std
+    test_metrics['Test_Accuracy'] = test_metrics['Accuracy']
+
+    print(f"[DNN RESULTS] Test Accuracy: {test_metrics['Accuracy']:.4f} | Train Accuracy: {train_accuracy:.4f} | Val Accuracy: {val_accuracy:.4f} | 5-Fold CV Acc: {cv_mean:.4f} (±{cv_std:.4f})")
+    print(f"[DNN METRICS] Precision: {test_metrics['Precision']:.4f} | Recall: {test_metrics['Recall']:.4f} | F1: {test_metrics['F1_Score']:.4f}")
 
     # Ensure directories exist and save files
     os.makedirs(os.path.join(output_dir, 'metrics'), exist_ok=True)

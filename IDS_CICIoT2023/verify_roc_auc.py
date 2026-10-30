@@ -29,7 +29,8 @@ from evaluation import (
     calculate_multiclass_roc_auc,
     calculate_comprehensive_metrics,
     plot_and_save_roc_curves,
-    save_complete_predictions
+    save_complete_predictions,
+    perform_5_fold_cv
 )
 from comparison import generate_model_comparison, regenerate_comparison_from_metrics
 from preprocessing import create_sequences
@@ -307,6 +308,36 @@ def run_test_6_mini_models_benchmark():
     print(f"  LSTM ROC-AUC: {lstm_metrics['ROC_AUC']:.4f} (NOT 0.0000)")
     print("  >>> TEST 6 PASSED: End-to-end model evaluation verified.")
 
+def run_test_7_cross_validation_and_accuracies():
+    print("\n" + "="*80)
+    print("TEST 7: 5-Fold Cross-Validation, Training and Validation Accuracies")
+    print("="*80)
+    from sklearn.ensemble import RandomForestClassifier
+    np.random.seed(42)
+    n_samples = 400
+    n_features = 10
+    n_classes = 5
+
+    X = np.random.randn(n_samples, n_features)
+    y = np.random.randint(0, n_classes, size=n_samples)
+
+    rf = RandomForestClassifier(n_estimators=10, max_depth=5, random_state=42)
+    cv_mean, cv_std, cv_scores = perform_5_fold_cv(
+        model_or_builder=rf,
+        X=X,
+        y=y,
+        is_keras=False,
+        n_splits=5,
+        model_name="Test_RF"
+    )
+
+    print(f"  5-Fold CV Mean: {cv_mean:.4f} (±{cv_std:.4f})")
+    print(f"  Fold Scores: {cv_scores}")
+    assert len(cv_scores) == 5, f"Expected 5 fold scores, got {len(cv_scores)}"
+    assert 0.0 <= cv_mean <= 1.0, f"CV Mean out of bounds: {cv_mean}"
+    assert cv_std >= 0.0, f"CV Std negative: {cv_std}"
+    print("  >>> TEST 7 PASSED: 5-Fold Cross-Validation verified successfully.")
+
 def main():
     print("================================================================================")
     print("      MULTICLASS ROC-AUC VERIFICATION SUITE — IDS CICIoT2023 BENCHMARK         ")
@@ -317,8 +348,9 @@ def main():
     run_test_4_save_and_reload_predictions()
     run_test_5_roc_curve_plotting()
     run_test_6_mini_models_benchmark()
+    run_test_7_cross_validation_and_accuracies()
     print("\n" + "="*80)
-    print("             ALL 6 VERIFICATION TEST SUITES PASSED SUCCESSFULLY!               ")
+    print("             ALL 7 VERIFICATION TEST SUITES PASSED SUCCESSFULLY!               ")
     print("================================================================================")
 
 if __name__ == '__main__':

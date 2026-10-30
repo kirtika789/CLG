@@ -1,2 +1,2 @@
 Original Rows,Final Rows,Original Features,Final Features,Number of Classes,Training Samples,Validation Samples,Testing Samples,Scaling Method,Encoding Method,PCA Used,PCA Components,Class Balancing Method
-7845673,199992,46,46,34,140000,29996,29996,StandardScaler (fit on train ONLY),LabelEncoder (fit on train ONLY),No (Base Preprocessing),N/A,Balanced Class Weights (fit on train ONLY)
+7845673,4995,46,46,27,3496,750,749,StandardScaler (fit on train ONLY),LabelEncoder (fit on train ONLY),No (Base Preprocessing),N/A,Balanced Class Weights (fit on train ONLY)

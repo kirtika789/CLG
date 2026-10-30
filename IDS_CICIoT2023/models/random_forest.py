@@ -7,6 +7,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
 
 from utils import set_seeds, Timer
 from tuning.hyperparams import RF_GRID
@@ -14,7 +15,8 @@ from evaluation import (
     calculate_comprehensive_metrics,
     plot_and_save_confusion_matrix,
     plot_and_save_roc_curves,
-    save_complete_predictions
+    save_complete_predictions,
+    perform_5_fold_cv
 )
 
 def align_probabilities(probs, classes_seen, num_classes):
@@ -150,7 +152,31 @@ def run_random_forest_experiment(dataset_dict, output_dir, hyperparam_configs=No
     test_metrics['Inference_Time'] = float(inference_time)
     test_metrics['Model'] = 'Random Forest'
 
-    print(f"[RANDOM FOREST RESULTS] Test Accuracy: {test_metrics['Accuracy']:.4f} | Precision: {test_metrics['Precision']:.4f} | Recall: {test_metrics['Recall']:.4f} | F1: {test_metrics['F1_Score']:.4f}")
+    # Compute Training, Validation, and 5-Fold Cross-Validation Accuracies
+    print("[RANDOM FOREST ACCURACY EVALUATION] Calculating training and validation accuracies...")
+    train_preds = final_rf.predict(X_train)
+    train_accuracy = float(accuracy_score(y_train, train_preds))
+
+    val_preds = final_rf.predict(X_val)
+    val_accuracy = float(accuracy_score(y_val, val_preds))
+
+    print("[RANDOM FOREST 5-FOLD CV] Running 5-fold stratified cross-validation...")
+    cv_mean, cv_std, _ = perform_5_fold_cv(
+        model_or_builder=final_rf,
+        X=X_train,
+        y=y_train,
+        is_keras=False,
+        model_name="Random Forest"
+    )
+
+    test_metrics['Train_Accuracy'] = train_accuracy
+    test_metrics['Val_Accuracy'] = val_accuracy
+    test_metrics['CV_Accuracy'] = cv_mean
+    test_metrics['CV_Std'] = cv_std
+    test_metrics['Test_Accuracy'] = test_metrics['Accuracy']
+
+    print(f"[RANDOM FOREST RESULTS] Test Accuracy: {test_metrics['Accuracy']:.4f} | Train Accuracy: {train_accuracy:.4f} | Val Accuracy: {val_accuracy:.4f} | 5-Fold CV Acc: {cv_mean:.4f} (±{cv_std:.4f})")
+    print(f"[RANDOM FOREST METRICS] Precision: {test_metrics['Precision']:.4f} | Recall: {test_metrics['Recall']:.4f} | F1: {test_metrics['F1_Score']:.4f}")
 
     # Save metrics
     df_metrics = pd.DataFrame([test_metrics])
